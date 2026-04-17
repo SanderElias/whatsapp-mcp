@@ -41,45 +41,41 @@ Pick a moniker when WA is first needed — 2–8 alphanumeric chars, abbreviatio
 
 ---
 
-## 🔁 Background Watcher — for long-running tasks
+## 🔁 Continuous Polling Loop — for tasks where user may reply via WA
 
-When the user asks to be kept informed and Copilot is about to run a multi-step task, start the watcher **before beginning the task**:
+When the user asks to be kept informed and steps away, Copilot runs a **self-driven polling loop** — it never goes idle, it just sleeps cheaply between checks. The LLM only does real work when a message arrives or a task step runs.
 
-```bash
-# Zero LLM tokens during sleep — runs entirely in the shell
-bash(mode="async", command="wa-watch HL")  → save as WATCHER_SHELL_ID
+### Starting the loop
+
+Send an opening message so the user knows the moniker, then enter the loop:
+
+```
+whatsapp_send("[Copilot] Starting <task>. Reply [C-HL] to send instructions. [C-HL]")
 ```
 
-Then send an opening WA message so the user knows the moniker:
+### The loop pattern
+
 ```
-whatsapp_send("[Copilot] Starting <task description>. Reply [C-HL] to send me instructions mid-task. [C-HL]")
-```
-
-### Checking for replies between steps
-
-At each natural pause between task steps, check if the watcher has exited (i.e. a reply arrived):
-
-```bash
-read_bash(WATCHER_SHELL_ID, delay=1)
+loop:
+  1. Do next task step (or skip if waiting for input)
+  2. bash(mode="sync", "sleep 20", initial_wait=25)  ← zero LLM tokens during sleep
+  3. whatsapp_check("HL")                             ← cheap MCP call
+  4. If message received → process it, send WA reply, update task state
+  5. Go to 1
 ```
 
-- If output contains `"count": N` where N > 0 → a WA reply arrived. Read it, act on it, then restart the watcher.
-- If output is empty or `"timeout"` → no reply, continue the task.
-- Restart the watcher after handling any reply: `bash(mode="async", command="wa-watch HL")`
+- **No task step pending?** Just sleep + check. Keep looping until a WA message tells you what to do next.
+- **Task complete?** Tell the user via WA, then keep looping (waiting for next instruction or confirmation).
+- **User types in the CLI?** Stop the loop immediately and handle the CLI input.
 
-This allows Copilot to act on WA replies **mid-task without the user touching the keyboard**. ✅
+This means Copilot stays "alive" the whole time — it just costs one small MCP call every 20 seconds during quiet periods, negligible token cost.
 
-### Hard limitation
+### Stopping the loop
 
-When Copilot is completely idle (task done, waiting for the next CLI input), it cannot self-wake. The watcher detects the reply but Copilot cannot act until the user types something in the CLI. The reply will be queued in the mailbox and picked up on the next turn.
-
-### Cleanup at turn start
-
-If the user types something and a watcher was running:
-1. `stop_bash(WATCHER_SHELL_ID)` — kill it
-2. `read_bash(WATCHER_SHELL_ID, delay=1)` — grab any final output
-3. If a WA message was waiting, acknowledge it
-4. Proceed with the user's CLI request
+Stop when:
+- The user types something in the CLI (handle it, ask if they want the loop restarted)
+- The user sends `[C-HL] stop` or `[C-HL] done` via WA
+- An unrecoverable error occurs
 
 ---
 

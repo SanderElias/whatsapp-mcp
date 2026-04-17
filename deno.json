@@ -1,0 +1,8 @@
+{
+  "name": "@sanderelias/whatsapp-mcp",
+  "version": "1.0.0",
+  "tasks": {
+    "start": "deno run --allow-net --allow-env server.ts",
+    "compile": "deno compile --allow-net --allow-env --output bin/whatsapp-mcp server.ts"
+  }
+}

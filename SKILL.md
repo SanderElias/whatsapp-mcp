@@ -1,10 +1,11 @@
 ---
 name: whatsapp-mcp
 description: >
-  How to use the whatsapp MCP tools (whatsapp_send, whatsapp_check) available in every Copilot
-  CLI session. Use this skill when asked to: send a WhatsApp message, check for WhatsApp replies,
-  keep the user posted via WhatsApp, use a session moniker, announce yourself on WA, or communicate
-  via [C-XX] monikers. Covers the startup ritual, moniker selection, and reply polling.
+  How to use the whatsapp MCP tools (whatsapp_send, whatsapp_check) and the wa-watch background
+  watcher available in every Copilot CLI session. Use this skill when asked to: send a WhatsApp
+  message, check for WhatsApp replies, keep the user posted via WhatsApp, use a session moniker,
+  announce yourself on WA, communicate via [C-XX] monikers, or wait for a WA reply while idle.
+  Covers the startup ritual, moniker selection, reply polling, and the background watcher pattern.
 ---
 
 # WhatsApp ↔ Copilot CLI Messaging
@@ -58,6 +59,42 @@ whatsapp_check("HL")   // always first, before reading the user's message
 ```
 
 If a reply is waiting, acknowledge it before proceeding with whatever the user asked in the CLI.
+
+---
+
+## 🔁 Background Watcher — for idle sessions
+
+When Copilot is about to go idle (long-running task finished, waiting for the user), start a background watcher so WA replies are noticed as soon as the user types anything new:
+
+### Start the watcher
+
+```bash
+# Returns immediately — loop runs in shell (zero LLM tokens during sleep)
+bash(mode="async", command="wa-watch HL")  → save shellId as WATCHER_SHELL_ID
+```
+
+`wa-watch` polls the mailbox every 20 seconds (configurable). When a message arrives it prints the JSON and exits. On timeout (default 10 min) it exits with `{"timeout":true}`.
+
+```
+wa-watch <MONIKER> [interval_seconds] [timeout_seconds]
+```
+
+### At the start of every turn (if watcher was running)
+
+1. `stop_bash(WATCHER_SHELL_ID)` — kill the watcher
+2. `read_bash(WATCHER_SHELL_ID, delay=1)` — get any buffered output
+3. Parse output: if `count > 0`, acknowledge the WA message to the user
+4. Handle the user's CLI request
+5. When done responding, **restart the watcher** with a fresh `bash(mode="async")` call and save the new shellId
+
+### When NOT to restart the watcher
+
+- If the session is actively interactive (rapid back-and-forth) — skip the watcher, just use `whatsapp_check` at turn start
+- If the session is ending
+
+### Tracking the shellId
+
+Store the watcher's shellId in a session variable or note it in your working memory. You need it to `stop_bash` and `read_bash` on the next turn.
 
 ---
 

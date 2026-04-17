@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# wa-watch — poll WhatsApp mailbox, exit (with output) when a message arrives
+# Usage: wa-watch <MONIKER> [poll_interval_seconds] [timeout_seconds]
+#
+# Exit codes:
+#   0 — message(s) found, JSON printed to stdout
+#   1 — timed out with no messages
+
+MONIKER="${1:?Usage: wa-watch MONIKER [interval_seconds] [timeout_seconds]}"
+INTERVAL="${2:-20}"
+TIMEOUT="${3:-600}"  # 10 min default
+
+CA="${COPILOT_WA_CA:-${DENO_CERT:-$HOME/Documenten/experiments/HomeLab/caddy-local-ca.crt}}"
+BASE_URL="${COPILOT_WA_URL:-https://copilot-wa.home.local}"
+
+elapsed=0
+while [ "$elapsed" -lt "$TIMEOUT" ]; do
+  result=$(curl -s --cacert "$CA" "$BASE_URL/mailbox/${MONIKER,,}" 2>/dev/null)
+  count=$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
+
+  if [ "${count:-0}" -gt 0 ]; then
+    echo "$result"
+    exit 0
+  fi
+
+  sleep "$INTERVAL"
+  elapsed=$((elapsed + INTERVAL))
+done
+
+echo "{\"timeout\":true,\"moniker\":\"$MONIKER\"}"
+exit 1

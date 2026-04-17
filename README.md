@@ -69,6 +69,7 @@ Then in `~/.copilot/mcp-config.json`:
 |---|---|---|
 | `COPILOT_WA_URL` | `https://copilot-wa.home.local` | Base URL of the copilot-wa service |
 | `WHATSAPP_OWNER_JID` | `31624771946@c.us` | Default recipient WhatsApp JID |
+| `DENO_CERT` | _(unset)_ | Path to a custom CA certificate (required for self-signed/local TLS, e.g. Caddy local CA) |
 
 ## Usage pattern
 

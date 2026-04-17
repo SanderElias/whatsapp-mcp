@@ -21,80 +21,75 @@ These tools are available in **every** Copilot CLI session via the global `whats
 
 ---
 
-## Session Startup Ritual
+## When to use WhatsApp
 
-At the start of any session where WhatsApp updates may be useful:
-
-1. **Pick a moniker** — 2–8 alphanumeric chars, abbreviation of the current project:
-
-   | Project | Moniker |
-   |---|---|
-   | HomeLab | `HL` |
-   | Admite | `ADM` |
-   | General / unknown | `CPL` |
-   | Angular project | `ANG` |
-   | Any other project | first 2–4 letters of the project name |
-
-2. **Announce yourself:**
-   ```
-   whatsapp_send("[Copilot] Starting session on <project>. Reply with [C-HL] to reach me. [C-HL]")
-   ```
-
-3. **Check for queued messages** (user may have sent something before this session started):
-   ```
-   whatsapp_check("HL")
-   ```
+**Only** set up WhatsApp communication when the user explicitly asks to be kept informed via WA, or asks to "keep me posted", "update me on WA", etc. Do **not** announce or start the watcher automatically on every session start.
 
 ---
 
-## ⚡ Auto-Poll Rule — MANDATORY
+## Monikers
 
-> **Once a moniker has been established in a session (i.e. `whatsapp_send` has been called at least once), call `whatsapp_check("<MONIKER>")` at the beginning of EVERY subsequent user turn — before doing anything else.**
+Pick a moniker when WA is first needed — 2–8 alphanumeric chars, abbreviation of the current project:
 
-This ensures the user's WhatsApp replies are never missed. The user cannot push messages into the session; Copilot must pull them. If you don't check at the start of each turn, replies sit in the mailbox unread.
-
-```
-// Start of every turn after moniker is set:
-whatsapp_check("HL")   // always first, before reading the user's message
-```
-
-If a reply is waiting, acknowledge it before proceeding with whatever the user asked in the CLI.
+| Project | Moniker |
+|---|---|
+| HomeLab | `HL` |
+| Admite | `ADM` |
+| General / unknown | `CPL` |
+| Angular project | `ANG` |
+| Any other project | first 2–4 letters of the project name |
 
 ---
 
-## 🔁 Background Watcher — for idle sessions
+## 🔁 Background Watcher — for long-running tasks
 
-When Copilot is about to go idle (long-running task finished, waiting for the user), start a background watcher so WA replies are noticed as soon as the user types anything new:
-
-### Start the watcher
+When the user asks to be kept informed and Copilot is about to run a multi-step task, start the watcher **before beginning the task**:
 
 ```bash
-# Returns immediately — loop runs in shell (zero LLM tokens during sleep)
-bash(mode="async", command="wa-watch HL")  → save shellId as WATCHER_SHELL_ID
+# Zero LLM tokens during sleep — runs entirely in the shell
+bash(mode="async", command="wa-watch HL")  → save as WATCHER_SHELL_ID
 ```
 
-`wa-watch` polls the mailbox every 20 seconds (configurable). When a message arrives it prints the JSON and exits. On timeout (default 10 min) it exits with `{"timeout":true}`.
+Then send an opening WA message so the user knows the moniker:
+```
+whatsapp_send("[Copilot] Starting <task description>. Reply [C-HL] to send me instructions mid-task. [C-HL]")
+```
+
+### Checking for replies between steps
+
+At each natural pause between task steps, check if the watcher has exited (i.e. a reply arrived):
+
+```bash
+read_bash(WATCHER_SHELL_ID, delay=1)
+```
+
+- If output contains `"count": N` where N > 0 → a WA reply arrived. Read it, act on it, then restart the watcher.
+- If output is empty or `"timeout"` → no reply, continue the task.
+- Restart the watcher after handling any reply: `bash(mode="async", command="wa-watch HL")`
+
+This allows Copilot to act on WA replies **mid-task without the user touching the keyboard**. ✅
+
+### Hard limitation
+
+When Copilot is completely idle (task done, waiting for the next CLI input), it cannot self-wake. The watcher detects the reply but Copilot cannot act until the user types something in the CLI. The reply will be queued in the mailbox and picked up on the next turn.
+
+### Cleanup at turn start
+
+If the user types something and a watcher was running:
+1. `stop_bash(WATCHER_SHELL_ID)` — kill it
+2. `read_bash(WATCHER_SHELL_ID, delay=1)` — grab any final output
+3. If a WA message was waiting, acknowledge it
+4. Proceed with the user's CLI request
+
+---
+
+## ⚡ Auto-Poll Rule
+
+> **If WhatsApp has been used in this session (moniker established), call `whatsapp_check("<MONIKER>")` at the start of each new user CLI turn** — in case the watcher was not running or timed out.
 
 ```
-wa-watch <MONIKER> [interval_seconds] [timeout_seconds]
+whatsapp_check("HL")   // before handling the user's message
 ```
-
-### At the start of every turn (if watcher was running)
-
-1. `stop_bash(WATCHER_SHELL_ID)` — kill the watcher
-2. `read_bash(WATCHER_SHELL_ID, delay=1)` — get any buffered output
-3. Parse output: if `count > 0`, acknowledge the WA message to the user
-4. Handle the user's CLI request
-5. When done responding, **restart the watcher** with a fresh `bash(mode="async")` call and save the new shellId
-
-### When NOT to restart the watcher
-
-- If the session is actively interactive (rapid back-and-forth) — skip the watcher, just use `whatsapp_check` at turn start
-- If the session is ending
-
-### Tracking the shellId
-
-Store the watcher's shellId in a session variable or note it in your working memory. You need it to `stop_bash` and `read_bash` on the next turn.
 
 ---
 

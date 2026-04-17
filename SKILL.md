@@ -55,18 +55,24 @@ whatsapp_send("[Copilot] Starting <task>. Reply [C-HL] to send instructions. [C-
 
 ### The loop pattern
 
+Use `wa-watch` in async mode — it polls via `curl` in the shell, **zero MCP/LLM cost** during the wait. The LLM only activates when a message actually arrives.
+
 ```
 loop:
-  1. Do next task step (or skip if waiting for input)
-  2. bash(mode="sync", "sleep 20", initial_wait=25)  ← zero LLM tokens during sleep
-  3. whatsapp_check("HL")                             ← cheap MCP call
-  4. If message received → process it, send WA reply, update task state
+  1. Do next task step (or nothing if waiting for input)
+  2. bash(mode="async", "wa-watch HL 20 600") → save shellId
+     ↓ shell polls every 20s via curl — LLM does nothing during this
+     ↓ wa-watch exits when message arrives OR after 600s timeout
+  3. (notified on exit) read_bash(shellId, delay=1) → parse JSON
+  4. If count > 0 → process message, reply on WA
+     If timeout    → restart loop (no message, keep watching)
   5. Go to 1
 ```
 
-- **No task step pending?** Just sleep + check. Keep looping until a WA message tells you what to do next.
-- **Task complete?** Tell the user via WA, then keep looping (waiting for next instruction or confirmation).
-- **User types in the CLI?** Stop the loop immediately and handle the CLI input.
+- `wa-watch <MONIKER> [interval_seconds] [timeout_seconds]` — installed at `~/.local/bin/wa-watch`
+- **No task step pending?** Start wa-watch and wait. Loop until a WA message tells you what to do.
+- **Task complete?** Tell the user via WA, then keep looping (waiting for next instruction).
+- **User types in the CLI?** `stop_bash(shellId)` to kill the watcher, then handle the CLI input.
 
 This means Copilot stays "alive" the whole time — it just costs one small MCP call every 20 seconds during quiet periods, negligible token cost.
 

@@ -160,6 +160,9 @@ async function main() {
         continue;
       }
 
+      // Notifications have no id — silently ignore them (no response allowed)
+      if (id === undefined) continue;
+
       // Unknown method — respond with method not found
       send({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
     }
